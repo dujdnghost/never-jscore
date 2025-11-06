@@ -82,6 +82,9 @@ A: PyExecJS 通过进程调用外部 JS 运行时，每次都有进程通信开�
 
 
 ## 安装
+```bash
+pip install never-jscore
+```
 
 ### 从源码安装
 
