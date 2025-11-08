@@ -66,12 +66,12 @@ jobs:
             # 创建 cargo 配置以修复 V8 TLS 链接问题
             mkdir -p .cargo
             cat > .cargo/config.toml << 'EOF'
-[target.x86_64-unknown-linux-gnu]
-rustflags = [
-    "-C", "relocation-model=pic",
-    "-C", "link-arg=-Wl,-z,notext",
-]
-EOF
+            [target.x86_64-unknown-linux-gnu]
+            rustflags = [
+                "-C", "relocation-model=pic",
+                "-C", "link-arg=-Wl,-z,notext",
+            ]
+            EOF
 
             # 设置环境变量
             export V8_FROM_SOURCE=0
