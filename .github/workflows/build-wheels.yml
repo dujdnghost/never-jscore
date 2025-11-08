@@ -67,20 +67,7 @@ jobs:
             python3 \
             python3-pip \
             git \
-            curl \
-            ninja-build
-
-      - name: Install V8 build tools (gn)
-        run: |
-          cd /tmp
-          curl -fsSL https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest -o gn.zip
-          unzip -q gn.zip
-          sudo mv gn /usr/local/bin/
-          sudo chmod +x /usr/local/bin/gn
-          echo "=== Build tool versions ==="
-          gn --version
-          ninja --version
-          clang --version
+            curl
 
       - name: Configure build environment
         run: |
@@ -89,85 +76,53 @@ jobs:
           echo "LIBCLANG_PATH=$LIBCLANG_PATH" >> $GITHUB_ENV
           echo "Found libclang at: $LIBCLANG_PATH"
 
-          # 设置 V8 构建缓存目录
-          echo "V8_CACHE_DIR=$HOME/.cache/v8" >> $GITHUB_ENV
-
-      # 缓存 V8 构建产物（如果存在）
-      - name: Cache V8 build
+      # 缓存 Rust 和 V8 预编译二进制
+      - name: Cache V8 and Rust dependencies
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/v8
             ~/.cargo/git
             ~/.cargo/registry
-          key: v8-linux-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
+          key: v8-prebuilt-linux-${{ matrix.target }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: |
-            v8-linux-${{ matrix.target }}-
+            v8-prebuilt-linux-${{ matrix.target }}-
 
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
           args: --release --out dist --find-interpreter
-          manylinux: auto
-          container: ${{ matrix.target == 'aarch64' && 'messense/manylinux_2_28-cross:aarch64' || 'off' }}
+          manylinux: 2014  # 使用 manylinux2014 以获得更好的兼容性
+          container: ${{ matrix.target == 'aarch64' && 'messense/manylinux2014-cross:aarch64' || 'off' }}
           before-script-linux: |
             set -e
 
             # 在 manylinux 容器中安装必要工具
             if command -v yum &> /dev/null; then
-              echo "=== Setting up manylinux container ==="
+              echo "=== Setting up manylinux2014 container ==="
               yum install -y clang llvm-devel cmake glibc-devel glibc-headers \
                 kernel-headers gcc-c++ python3 git curl unzip wget
 
               # 保存工作目录
               WORK_DIR=$(pwd)
 
-              # 安装 ninja
-              cd /tmp
-              curl -fsSL https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip -o ninja.zip
-              unzip -q ninja.zip
-              mv ninja /usr/local/bin/
-              chmod +x /usr/local/bin/ninja
-
-              # 安装 gn
-              curl -fsSL https://chrome-infra-packages.appspot.com/dl/gn/gn/linux-amd64/+/latest -o gn.zip
-              unzip -q gn.zip
-              mv gn /usr/local/bin/
-              chmod +x /usr/local/bin/gn
-
-              cd "$WORK_DIR"
-
               echo "=== Tool versions in container ==="
-              gn --version
-              ninja --version
-              clang --version
               python3 --version
               rustc --version
-
-              # 配置 bindgen
-              ARCH=$(uname -m)
-              export BINDGEN_EXTRA_CLANG_ARGS="-I/usr/include -I/usr/include/$ARCH-linux-gnu"
-              export LIBCLANG_PATH=$(find /usr/lib* -name "libclang.so*" 2>/dev/null | head -1 | xargs dirname 2>/dev/null || echo "/usr/lib64")
-
-              echo "BINDGEN_EXTRA_CLANG_ARGS=$BINDGEN_EXTRA_CLANG_ARGS"
-              echo "LIBCLANG_PATH=$LIBCLANG_PATH"
+              clang --version || echo "clang not available"
             fi
 
-            # V8 TLS 模型修复：使用 global-dynamic 避免 dlopen 问题
-            export V8_FROM_SOURCE=1
-            export GN_ARGS='extra_cflags=["-DV8_TLS_MODEL=\"global-dynamic\"","-fPIC"] is_clang=true'
+            # 使用预编译 V8（manylinux2014 对 TLS 更宽容）
+            export V8_FROM_SOURCE=0
             export CARGO_NET_GIT_FETCH_WITH_CLI=true
-            export RUST_BACKTRACE=1
+            export RUST_BACKTRACE=full
 
             echo "=== V8 Build Configuration ==="
             echo "V8_FROM_SOURCE=$V8_FROM_SOURCE"
-            echo "GN_ARGS=$GN_ARGS"
             echo "Target: ${{ matrix.target }}"
         env:
-          V8_FROM_SOURCE: "1"
-          GN_ARGS: 'extra_cflags=["-DV8_TLS_MODEL=\"global-dynamic\"","-fPIC"] is_clang=true'
-          RUSTFLAGS: "-C relocation-model=pic"
+          V8_FROM_SOURCE: "0"
+          RUSTFLAGS: "-C link-arg=-Wl,--no-as-needed"
           CARGO_NET_GIT_FETCH_WITH_CLI: "true"
 
       - name: List built wheels
